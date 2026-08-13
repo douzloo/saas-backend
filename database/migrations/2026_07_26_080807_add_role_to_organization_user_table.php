@@ -21,14 +21,14 @@ return new class extends Migration
      */
     public function down(): void
     {
-	Schema::table('organization_user', function (Blueprint $table) {
-	    $table->string('role')
-        	->default('member')
-	        ->after('user_id');
+        Schema::table('organization_user', function (Blueprint $table) {
+            $table->string('role')
+                ->default('member')
+                ->after('user_id');
 
-   	 $table->json('permissions')
-        	->nullable()
-       		 ->after('role');
-});
+            $table->json('permissions')
+                ->nullable()
+                ->after('role');
+        });
     }
 };

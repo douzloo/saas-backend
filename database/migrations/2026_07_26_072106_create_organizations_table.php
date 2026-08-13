@@ -14,20 +14,17 @@ return new class extends Migration
         Schema::create('organizations', function (Blueprint $table) {
             $table->id();
 
-	    $table->string('name');
-	    $table->string('slug')->unique();
+            $table->string('name');
+            $table->string('slug')->unique();
 
-	    $table->foreignId('owner_id')
-        	->constrained('users')
-	        ->cascadeOnDelete();
+            $table->foreignId('owner_id')
+                ->constrained('users')
+                ->cascadeOnDelete();
 
-	    $table->enum('status', [
-        	'active',
-	        'inactive'
-	    ])->default('active');
-
-        
-
+            $table->enum('status', [
+                'active',
+                'inactive',
+            ])->default('active');
 
             $table->timestamps();
         });

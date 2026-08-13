@@ -11,3 +11,6 @@ parameters:
         - routes/
 
     level: 7
+
+    # Parse casts() methods so datetime/date cast columns are typed correctly.
+    parseModelCastsMethod: true
