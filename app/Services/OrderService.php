@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\PaymentGatewayException;
 use App\Models\Coupon;
 use App\Models\Order;
 use App\Models\OrderItem;
@@ -9,12 +10,15 @@ use App\Models\Payment;
 use App\Models\Product;
 use App\Models\User;
 use App\Services\Interfaces\OrderServiceInterface;
+use App\Services\Payments\PaymentGatewayManager;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class OrderService implements OrderServiceInterface
 {
     public function __construct(
         protected LicenseService $licenseService,
+        protected PaymentGatewayManager $gatewayManager,
     ) {}
 
     /**
@@ -81,12 +85,35 @@ class OrderService implements OrderServiceInterface
 
         $order->update(['status' => 'processing']);
 
+        try {
+            $result = $this->gatewayManager
+                ->gateway($gateway)
+                ->createPayment($order, $payment);
+        } catch (PaymentGatewayException $e) {
+            $payment->update([
+                'status' => 'failed',
+                'failure_reason' => $e->getMessage(),
+                'failed_at' => now(),
+            ]);
+
+            Log::error('payment.gateway_create_failed', [
+                'payment_id' => $payment->id,
+                'order_id' => $order->id,
+                'gateway' => $gateway,
+                'error' => $e->getMessage(),
+                'context' => $e->getContext(),
+            ]);
+
+            throw $e;
+        }
+
         return [
             'payment_id' => $payment->id,
             'transaction_id' => $payment->transaction_id,
+            'authority' => $result['authority'],
             'amount' => $order->total,
             'gateway' => $gateway,
-            'redirect_url' => $this->getGatewayRedirect($gateway, $payment, $params),
+            'redirect_url' => $result['redirect_url'],
         ];
     }
 
@@ -105,6 +132,12 @@ class OrderService implements OrderServiceInterface
             // repeated gateway callbacks / double verifies safe.
             if ($payment->status === 'completed') {
                 return true;
+            }
+
+            // A payment that failed at the gateway can never be completed by a
+            // later callback / verify — prevents replay of failed transactions.
+            if ($payment->status === 'failed') {
+                return false;
             }
 
             $payment->update([
@@ -170,16 +203,5 @@ class OrderService implements OrderServiceInterface
         $coupon->apply();
 
         return $order;
-    }
-
-    /**
-     * @param  array<string, mixed>  $params
-     */
-    protected function getGatewayRedirect(string $gateway, Payment $payment, array $params): string
-    {
-        return match ($gateway) {
-            'zarinpal' => 'https://www.zarinpal.com/pg/StartPay/'.$payment->transaction_id,
-            default => '#',
-        };
     }
 }

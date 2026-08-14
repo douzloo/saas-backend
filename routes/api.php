@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\V1\PaymentController;
 use App\Http\Controllers\Api\V1\Portal\PortalController;
 use App\Http\Controllers\Api\V1\ProductController;
 use App\Http\Controllers\Api\V1\TicketController;
+use App\Http\Controllers\Api\V1\ZarinpalCallbackController;
 use App\Http\Middleware\EnsureUserIsAdmin;
 use App\Http\Middleware\EnsureUserIsStaff;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -65,6 +66,9 @@ Route::get('/downloads/{download}', [DownloadController::class, 'download']);
 Route::get('/settings', [CmsController::class, 'settings']);
 Route::get('/pages', [CmsController::class, 'pages']);
 Route::get('/pages/{slug}', [CmsController::class, 'page']);
+
+// Payment gateway server-side callback (public — invoked by the provider)
+Route::get('/payment/callback/zarinpal', ZarinpalCallbackController::class);
 
 /*
 |--------------------------------------------------------------------------

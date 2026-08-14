@@ -21,6 +21,8 @@ class PaymentResource extends JsonResource
             'invoice_id' => $this->invoice_id,
             'order_id' => $this->order_id,
             'transaction_id' => $this->transaction_id,
+            'authority' => $this->authority,
+            'ref_id' => $this->ref_id,
             'reference_id' => $this->reference_id,
             'gateway' => $this->gateway,
             'status' => $this->status,
@@ -33,6 +35,8 @@ class PaymentResource extends JsonResource
             'is_refunded' => $this->isRefunded(),
             'failure_reason' => $this->failure_reason,
             'paid_at' => $this->paid_at?->toIso8601String(),
+            'verified_at' => $this->verified_at?->toIso8601String(),
+            'failed_at' => $this->failed_at?->toIso8601String(),
             'refunded_at' => $this->refunded_at?->toIso8601String(),
             'created_at' => $this->created_at?->toIso8601String(),
 

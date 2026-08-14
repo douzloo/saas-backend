@@ -16,6 +16,8 @@ class Payment extends Model
         'invoice_id',
         'order_id',
         'transaction_id',
+        'authority',
+        'ref_id',
         'reference_id',
         'gateway',
         'status',
@@ -26,6 +28,8 @@ class Payment extends Model
         'gateway_response',
         'failure_reason',
         'paid_at',
+        'verified_at',
+        'failed_at',
         'refunded_at',
     ];
 
@@ -39,6 +43,8 @@ class Payment extends Model
             'refunded_amount' => 'decimal:2',
             'gateway_response' => 'array',
             'paid_at' => 'datetime',
+            'verified_at' => 'datetime',
+            'failed_at' => 'datetime',
             'refunded_at' => 'datetime',
         ];
     }

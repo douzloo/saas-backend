@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Exceptions\NotImplementedException;
+use App\Exceptions\PaymentGatewayException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreOrderRequest;
 use App\Http\Resources\InvoiceResource;
@@ -11,14 +13,17 @@ use App\Models\License;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Services\Interfaces\OrderServiceInterface;
+use App\Services\Payments\PaymentGatewayManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\Log;
 
 class OrderController extends Controller
 {
     public function __construct(
         protected OrderServiceInterface $orderService,
+        protected PaymentGatewayManager $gatewayManager,
     ) {}
 
     public function index(Request $request): AnonymousResourceCollection
@@ -89,7 +94,13 @@ class OrderController extends Controller
             return response()->json(['message' => 'سفارش قابل پرداخت نیست.'], 422);
         }
 
-        $result = $this->orderService->processPayment($order, $request->gateway);
+        try {
+            $result = $this->orderService->processPayment($order, $request->gateway);
+        } catch (NotImplementedException $e) {
+            return response()->json(['message' => 'درگاه پرداخت موردنظر هنوز فعال نشده است.'], 422);
+        } catch (PaymentGatewayException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
 
         return response()->json($result);
     }
@@ -98,6 +109,9 @@ class OrderController extends Controller
      * Confirm a successful gateway payment, complete the order and issue the
      * purchased licenses (which grant download access). Idempotent — the
      * frontend may call this on return from the gateway or on page reload.
+     *
+     * Verifies the transaction with the payment provider through the gateway
+     * manager before completing the order.
      */
     public function verifyPayment(Request $request, Order $order, Payment $payment): JsonResponse
     {
@@ -113,12 +127,52 @@ class OrderController extends Controller
             return response()->json(['message' => 'پرداخت ناموفق است.'], 422);
         }
 
+        // Already verified / completed — return the current state without
+        // contacting the provider again (prevents double verification).
+        if ($payment->status === 'completed') {
+            return $this->verificationResponse($order, $payment);
+        }
+
+        if ($payment->authority === null || $payment->authority === '') {
+            return response()->json(['message' => 'تراکنش فاقد آتوریتی درگاه است.'], 422);
+        }
+
+        try {
+            $result = $this->gatewayManager
+                ->gateway($payment->gateway)
+                ->verifyPayment($payment, $payment->authority);
+        } catch (PaymentGatewayException $e) {
+            Log::error('payment.verify_exception', [
+                'payment_id' => $payment->id,
+                'order_id' => $order->id,
+                'error' => $e->getMessage(),
+                'context' => $e->getContext(),
+            ]);
+
+            return response()->json(['message' => 'تأیید پرداخت در درگاه ناموفق بود.'], 422);
+        }
+
+        if (! $result['success']) {
+            $payment->update([
+                'status' => 'failed',
+                'failure_reason' => $result['message'],
+                'failed_at' => now(),
+            ]);
+
+            return response()->json(['message' => 'پرداخت توسط درگاه تأیید نشد.'], 422);
+        }
+
         $completed = $this->orderService->completePayment($order, $payment->transaction_id);
 
         if (! $completed) {
             return response()->json(['message' => 'تراکنش یافت نشد.'], 422);
         }
 
+        return $this->verificationResponse($order, $payment);
+    }
+
+    protected function verificationResponse(Order $order, Payment $payment): JsonResponse
+    {
         $order->load(['items.product', 'payments', 'invoice']);
 
         $licenses = License::query()

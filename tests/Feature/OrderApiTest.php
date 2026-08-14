@@ -4,6 +4,38 @@ use App\Models\Download;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\User;
+use Illuminate\Support\Facades\Http;
+
+/**
+ * Configure a faked Zarinpal gateway (sandbox) so order /pay calls and
+ * /verify calls never touch the real provider.
+ *
+ * @param  array<string, array<string, mixed>>  $overrides
+ */
+function fakeZarinpal(array $overrides = []): void
+{
+    config()->set('payments.gateways.zarinpal.merchant_id', 'test-merchant');
+    config()->set('payments.gateways.zarinpal.sandbox', true);
+
+    Http::fake([
+        'sandbox.zarinpal.com/pg/v4/payment/request.json' => Http::response(
+            array_merge([
+                'data' => ['authority' => 'A000000000000000000000000000000001'],
+                'errors' => [],
+                'code' => 100,
+                'message' => 'Success',
+            ], $overrides['request'] ?? [])
+        ),
+        'sandbox.zarinpal.com/pg/v4/payment/verify.json' => Http::response(
+            array_merge([
+                'data' => ['code' => 100, 'ref_id' => '100000000', 'message' => 'Verified'],
+                'errors' => [],
+                'code' => 100,
+                'message' => 'Success',
+            ], $overrides['verify'] ?? [])
+        ),
+    ]);
+}
 
 it('requires authentication to list orders', function () {
     $this->getJson('/api/orders')->assertUnauthorized();
@@ -98,6 +130,8 @@ it('allows staff to view any order', function () {
 });
 
 it('processes payment for a pending order', function () {
+    fakeZarinpal();
+
     $user = User::factory()->create();
     $order = Order::factory()->for($user)->create(['status' => 'pending', 'total' => 50000]);
 
@@ -105,8 +139,15 @@ it('processes payment for a pending order', function () {
         ->postJson("/api/orders/{$order->id}/pay", ['gateway' => 'zarinpal']);
 
     $response->assertOk()
-        ->assertJsonStructure(['payment_id', 'transaction_id', 'amount', 'gateway', 'redirect_url'])
-        ->assertJsonPath('amount', '50000.00');
+        ->assertJsonStructure(['payment_id', 'transaction_id', 'authority', 'amount', 'gateway', 'redirect_url'])
+        ->assertJsonPath('amount', '50000.00')
+        ->assertJsonPath('authority', 'A000000000000000000000000000000001');
+
+    $this->assertDatabaseHas('payments', [
+        'order_id' => $order->id,
+        'gateway' => 'zarinpal',
+        'authority' => 'A000000000000000000000000000000001',
+    ]);
 });
 
 it('rejects payment for non-pending order', function () {
@@ -120,6 +161,8 @@ it('rejects payment for non-pending order', function () {
 });
 
 it('verifies a payment, completes the order and issues licenses', function () {
+    fakeZarinpal();
+
     $user = User::factory()->create();
     $product = Product::factory()->create([
         'price' => 100000,
@@ -158,6 +201,8 @@ it('verifies a payment, completes the order and issues licenses', function () {
 });
 
 it('is idempotent when verifying an already completed payment', function () {
+    fakeZarinpal();
+
     $user = User::factory()->create();
     $product = Product::factory()->create([
         'price' => 100000,
@@ -185,6 +230,8 @@ it('is idempotent when verifying an already completed payment', function () {
 });
 
 it('lets the purchased user download a license-gated file', function () {
+    fakeZarinpal();
+
     $user = User::factory()->create();
     $product = Product::factory()->create([
         'price' => 100000,
@@ -214,6 +261,8 @@ it('lets the purchased user download a license-gated file', function () {
 });
 
 it('does not allow verifying another users order payment', function () {
+    fakeZarinpal();
+
     $user = User::factory()->create();
     $other = User::factory()->create();
     $product = Product::factory()->create(['price' => 100000, 'requires_activation' => true]);
