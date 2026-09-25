@@ -1,8 +1,16 @@
 FROM php:8.5-cli
 
 RUN apt-get update && apt-get install -y \
-    git unzip libzip-dev \
-    && docker-php-ext-install zip pdo pdo_mysql
+    git \
+    unzip \
+    libzip-dev \
+    libpq-dev \
+    && docker-php-ext-install \
+        zip \
+        pdo \
+        pdo_mysql \
+        pdo_pgsql \
+        pgsql
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
